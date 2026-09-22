@@ -1,0 +1,71 @@
+name: synthetic-release-proof
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Exact audited synthetic repository and candidate
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: synthetic-release-proof
+  cancel-in-progress: false
+jobs:
+  verifier:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Fixed synthetic verifier
+        env:
+          PROOF_MODE: verifier
+          PROOF_PROFILE: ${{ inputs.profile }}
+          PROOF_JOB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'BOOT'
+          import base64,hashlib,json,os,pathlib,re,subprocess,tempfile,urllib.request
+          repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA']
+          assert re.fullmatch(r'Ligerian-labs/llpm-p00d-public-[0-9]{14}-[0-9a-f]{6}',repo)
+          assert re.fullmatch(r'[0-9a-f]{40}',sha)
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args): raise RuntimeError('Redirect refused')
+          req=urllib.request.Request('https://api.github.com/repos/'+repo+'/contents/proof.py?ref='+sha,headers={'Authorization':'Bearer '+os.environ['PROOF_JOB_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.build_opener(NoRedirect).open(req,timeout=15) as response: raw=response.read(131073)
+          assert len(raw)<=131072
+          value=json.loads(raw);assert value['encoding']=='base64'
+          code=base64.b64decode(value['content']);assert hashlib.sha256(code).hexdigest()=='9e989825749ac98bc009cba24f640685fbfce7174cf8eb3caad80e8c464ac775'
+          with tempfile.TemporaryDirectory(prefix='p00d-source-') as directory:
+              path=pathlib.Path(directory)/'proof.py';path.write_bytes(code)
+              subprocess.run(['python3',str(path)],check=True,timeout=240)
+          BOOT
+  writer:
+    needs: verifier
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Alternate writer negative controls
+        env:
+          PROOF_MODE: writer
+          PROOF_PROFILE: ${{ inputs.profile }}
+          PROOF_JOB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'BOOT'
+          import base64,hashlib,json,os,pathlib,re,subprocess,tempfile,urllib.request
+          repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA']
+          assert re.fullmatch(r'Ligerian-labs/llpm-p00d-public-[0-9]{14}-[0-9a-f]{6}',repo)
+          assert re.fullmatch(r'[0-9a-f]{40}',sha)
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args): raise RuntimeError('Redirect refused')
+          req=urllib.request.Request('https://api.github.com/repos/'+repo+'/contents/proof.py?ref='+sha,headers={'Authorization':'Bearer '+os.environ['PROOF_JOB_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.build_opener(NoRedirect).open(req,timeout=15) as response: raw=response.read(131073)
+          assert len(raw)<=131072
+          value=json.loads(raw);assert value['encoding']=='base64'
+          code=base64.b64decode(value['content']);assert hashlib.sha256(code).hexdigest()=='9e989825749ac98bc009cba24f640685fbfce7174cf8eb3caad80e8c464ac775'
+          with tempfile.TemporaryDirectory(prefix='p00d-source-') as directory:
+              path=pathlib.Path(directory)/'proof.py';path.write_bytes(code)
+              subprocess.run(['python3',str(path)],check=True,timeout=240)
+          BOOT
